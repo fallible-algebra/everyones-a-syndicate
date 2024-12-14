@@ -1,0 +1,15 @@
+[package]
+name = "rss-queen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.94"
+atom_syndication = { version = "0.12.5", features = ["serde"] }
+axum = "0.7.9"
+either = "1.13.0"
+moka = { version = "0.12.8", features = ["future"] }
+reqwest = "0.12.9"
+rss = { version = "2.0.11", features = ["with-serde"] }
+serde = { version = "1.0.216", features = ["serde_derive"] }
+tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
