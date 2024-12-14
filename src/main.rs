@@ -1,8 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    default,
     str::FromStr,
-    sync::Arc,
     time::Duration,
 };
 
@@ -14,13 +12,13 @@ use anyhow::anyhow;
 /// way. I don't know if people have done this much before. I don't remember
 /// this kind of thing from the old rss days.
 use axum::*;
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset};
 use either::Either;
 use extract::State;
-use http::{request, StatusCode};
+use http::StatusCode;
 use moka::future::Cache;
 use rand::seq::SliceRandom;
-use reqwest::{Client, Url};
+use reqwest::Url;
 use routing::post;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
