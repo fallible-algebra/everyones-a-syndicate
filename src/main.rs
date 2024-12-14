@@ -54,7 +54,7 @@ impl RssCache {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
 pub struct RssRequest {
     pub feeds: BTreeSet<String>,
     #[serde(default)]
@@ -63,7 +63,7 @@ pub struct RssRequest {
     pub show_mode: ShowMode,
 }
 
-#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct MaxFeedItems(usize);
 
 impl Default for MaxFeedItems {
@@ -72,7 +72,7 @@ impl Default for MaxFeedItems {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
 pub enum ShowMode {
     EqualChronoShuffle,
     ReverseChronological,
@@ -207,10 +207,13 @@ pub struct RssResponse {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let state = RssCache::new(5000, Duration::from_secs(60 * 15));
+    let address = "0.0.0.0:3001";
+    println!("Opening at http://{address}");
     let router = Router::new()
         .route("/poll_feeds", post(poll_feeds))
+        .route("/poll_feeds_rendered", post(poll_feeds))
         .with_state(state);
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(address).await.unwrap();
     axum::serve(listener, router).await.unwrap();
     Ok(())
 }
@@ -222,6 +225,7 @@ pub async fn poll_feeds(
     if let Some(cached_response) = state.request_cache.get(&input).await {
         return Ok(Json(cached_response));
     }
+    let input_cloned = input.clone();
     let mut set: JoinSet<Result<_, anyhow::Error>> = JoinSet::new();
     let urls = input
         .feeds
@@ -266,6 +270,8 @@ pub async fn poll_feeds(
         };
         feeds.insert(url, feed);
     }
-
-    unimplemented!()
+    let ordered = input.show_mode.order_feeds(feeds, input.max_feed_items.0.min(state.max_items_per_feed));
+    let response = RssResponse { items: ordered };
+    state.request_cache.insert(input_cloned, response.clone()).await;
+    Ok(Json(response))
 }
