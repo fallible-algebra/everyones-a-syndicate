@@ -19,9 +19,10 @@ use http::StatusCode;
 use moka::future::Cache;
 use rand::seq::SliceRandom;
 use reqwest::Url;
-use routing::post;
+use response::Html;
+use routing::{get, post};
 use serde::{Deserialize, Serialize};
-use tokio::task::JoinSet;
+use tokio::{io::AsyncReadExt, task::JoinSet};
 
 type Feed = Either<rss::Channel, atom_syndication::Feed>;
 
@@ -74,7 +75,7 @@ impl Default for MaxFeedItems {
 pub enum ShowMode {
     EqualChronoShuffle,
     ReverseChronological,
-    EqualChronoAlphabetical,
+    EqualChronoAlphabetical, 
 }
 
 impl Default for ShowMode {
@@ -206,14 +207,27 @@ pub struct RssResponse {
 async fn main() -> Result<(), anyhow::Error> {
     let state = RssCache::new(5000, Duration::from_secs(60 * 15));
     let address = "0.0.0.0:3001";
-    println!("Opening at http://{address}");
+    println!("Opening at {address}");
     let router = Router::new()
         .route("/poll_feeds", post(poll_feeds))
         .route("/poll_feeds_rendered", post(poll_feeds))
+        .route("/", get(index_page))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind(address).await.unwrap();
     axum::serve(listener, router).await.unwrap();
     Ok(())
+}
+
+
+async fn index_page() -> Html<String> {
+    #[cfg(debug_assertions)]
+    {
+        let mut dst = String::new();
+        let _ = tokio::fs::File::open("index.html").await.unwrap().read_to_string(&mut dst).await;
+        Html(dst)
+    }
+    #[cfg(not(debug_assertions))]
+    Html(include_str!("../index.html").to_owned())
 }
 
 pub async fn poll_feeds(

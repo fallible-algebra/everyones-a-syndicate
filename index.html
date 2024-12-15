@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<head>
+<style>
+body {
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    align-self: center;
+    font-family: "";
+}
+</style>
+<script type="text/javascript">
+
+function set_snippet() {
+    let to_poll = window.location.href;
+    if (!to_poll.endsWith("/")) {
+        to_poll += "/";
+    }
+    let chosen_mode = document.querySelector('input[name="order"]:checked').value;
+    let websites = document.querySelector('#feed-list').value.trim().split(/[\n]+/).map(value => value.length > 0 ? `"${value}"`: "");
+    document.querySelector('#snippet').value = `\<script type="text/javascript"\>
+fetch("${to_poll}poll_feeds", {body: JSON.stringify({feeds: [${websites}], show_mode: '${chosen_mode}'}), method: "POST", headers: new Headers({'content-type': 'application/json'})})
+    .then(result => result.body())
+    .then(body => document.querySelector('#place-here').innerHtml = body);
+\</script\>
+\<div id="place-here"\>
+
+\</div\>`;
+}
+
+document.addEventListener("DOMContentLoaded", function(event){
+    set_snippet()
+});
+</script>
+</head>
+<body>
+<h1>
+RSS Syndication for Everyone that people can Actually Put On Their Web Pages
+</h1>
+
+<p>
+Hi. Social media kinda sucks. Websites can be good. Social websites can be good. But it's hard to have a social element without tying in lots of other stuff like comment providers.
+</p>
+<p>
+This is a web server that fetches RSS feeds and sends them back to you. It can take multiple feeds and order the items in them in one of several ways you might want it to.
+</p>
+<p>
+That is, you can give this server a list of RSS feeds of your pals, people whose work you like, or whatever, and get a little piece of code you can put in an HTML file for your website (it's in an iframe, if you want it to be. It should be simple to hand-modify too as you need to) or in a template if you're into that.
+</p>
+<p>
+Or you can embed it on a home server and just have an RSS/Atom feed reader.
+</p>
+<p>
+It is <a href="">open source</a> under the GPL licence. You can run a version yourself, but not monetise it, or make changes without publication. It's written in a language with low resource use and high performance, so it shouldn't cost that much to run your own instance. I tried to come up with a way of doing this client-side only but CORS issues got in the way without a reliable and free proxy.
+</p>
+
+<div id="widget-builder">
+<textarea id="feed-list"></textarea>
+
+<div id="order-type" class="choose">
+    <div>
+        <input name="order" type="radio" id="equal-shuffle" value="EqualChronoShuffle" onchange="set_snippet()" checked/>
+        <label for="equal-shuffle">Equal Shuffle</label>
+    </div>
+    <div>
+        <input name="order" type="radio" id="rev-chrono" value="ReverseChronological" onchange="set_snippet()" />
+        <label for="rev-chrono">Newest First</label>
+    </div>
+    <div>
+        <input name="order" type="radio" id="equal-alphabetical" value="EqualChronoAlphabetical" onchange="set_snippet()" />
+        <label for="equal-alphabetical">Equal Alphabetical</label>
+    </div>
+</div>
+
+</div>
+
+<textarea id="snippet" disabled></textarea>
+
+<div id="place-here">
+
+</div>
+
+</body>

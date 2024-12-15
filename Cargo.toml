@@ -14,4 +14,5 @@ rand = "0.8.5"
 reqwest = "0.12.9"
 rss = { version = "2.0.11", features = ["with-serde"] }
 serde = { version = "1.0.216", features = ["serde_derive"] }
-tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
+serde_repr = "0.1.19"
+tokio = { version = "1.42.0", features = ["fs", "rt-multi-thread"] }
