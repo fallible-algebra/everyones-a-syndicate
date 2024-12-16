@@ -1,3 +1,9 @@
+/// I understand that there's an amount of style perfectionism in writing
+/// open source code because this is where people go to check in on if you
+/// are an appropriate addition to the company. This is a quick, dirty,
+/// and small thing to just make rss a little easier to integrate in a social
+/// way. I don't know if people have done this much before. I don't remember
+/// this kind of thing from the old rss days.
 use std::{
     collections::{BTreeMap, BTreeSet},
     str::FromStr,
@@ -5,12 +11,6 @@ use std::{
 };
 
 use anyhow::anyhow;
-/// I understand that there's an amount of style perfectionism in writing
-/// open source code because this is where people go to check in on if you
-/// are an appropriate addition to the company. This is a quick, dirty,
-/// and small thing to just make rss a little easier to integrate in a social
-/// way. I don't know if people have done this much before. I don't remember
-/// this kind of thing from the old rss days.
 use axum::*;
 use chrono::{DateTime, FixedOffset};
 use either::Either;
@@ -32,6 +32,7 @@ type Items = Either<rss::Item, atom_syndication::Entry>;
 #[derive(Clone)]
 struct RssCache {
     pub feed_cache: Cache<Url, Feed>,
+    pub non_feeds: Cache<Url, ()>,
     pub request_cache: Cache<RssRequest, RssResponse>,
     pub max_feed_request: usize,
     pub max_items_per_feed: usize,
@@ -43,6 +44,10 @@ impl RssCache {
             feed_cache: Cache::builder()
                 .time_to_live(invalidate_after)
                 .max_capacity(capacity)
+                .build(),
+            non_feeds: Cache::builder()
+                .time_to_live(Duration::from_secs(60 * 60))
+                .max_capacity(1000)
                 .build(),
             request_cache: Cache::builder()
                 .time_to_live(Duration::from_secs(60 * 2))
@@ -246,7 +251,12 @@ async fn feed_cors(
             Either::Right(atom) => atom.to_string(),
         }
     }
-    if let Some(feed) = state.feed_cache.get(&url).await {
+    if state.non_feeds.contains_key(&url) {
+        Err((
+            StatusCode::BAD_REQUEST,
+            "URL flagged as non-feed, try again in an hour.".to_owned(),
+        ))
+    } else if let Some(feed) = state.feed_cache.get(&url).await {
         Ok(render(feed))
     } else {
         let res = reqwest::get(url.clone())
@@ -256,8 +266,10 @@ async fn feed_cors(
             .text()
             .await
             .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
-        let parsed =
-            parse_as_rss_or_atom(text).ok_or_else(|| (StatusCode::BAD_REQUEST, String::new()))?;
+        let Some(parsed) = parse_as_rss_or_atom(text) else {
+            state.non_feeds.insert(url.clone(), ()).await;
+            return Err((StatusCode::BAD_REQUEST, String::new()));
+        };
         state.feed_cache.insert(url.clone(), parsed.clone()).await;
         Ok(render(parsed))
     }
@@ -327,6 +339,10 @@ async fn poll_feed_inner(
         .filter_map(|url| Url::parse(&url).ok())
         .take(state.max_feed_request);
     for url in urls {
+        if state.non_feeds.contains_key(&url) {
+            continue;
+        }
+        let non_feeds = state.non_feeds.clone();
         let cache = state.feed_cache.clone();
         set.spawn(async move {
             let entry = cache.get(&url).await.clone();
@@ -337,8 +353,10 @@ async fn poll_feed_inner(
                     .await
                     .map_err(|err| anyhow!("{err}"))?;
                 let text = response.text().await.map_err(|err| anyhow!("{err}"))?;
-                let parsed = parse_as_rss_or_atom(text)
-                    .ok_or_else(|| anyhow!("Could not parse as RSS or Atom feed: {url:?}"))?;
+                let Some(parsed) = parse_as_rss_or_atom(text) else {
+                    non_feeds.insert(url.clone(), ()).await;
+                    return Err(anyhow!("Could not parse as RSS or Atom feed: {url:?}"))?;
+                };
                 cache.insert(url.clone(), parsed.clone()).await;
                 Ok((url, parsed))
             }
