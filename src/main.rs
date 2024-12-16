@@ -15,11 +15,11 @@ use axum::*;
 use chrono::{DateTime, FixedOffset};
 use either::Either;
 use extract::State;
-use http::StatusCode;
+use http::{header, StatusCode};
 use moka::future::Cache;
 use rand::seq::SliceRandom;
 use reqwest::Url;
-use response::Html;
+use response::{Html, IntoResponse};
 use routing::{get, post};
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncReadExt, task::JoinSet};
@@ -40,7 +40,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let router = Router::new()
         .route("/poll_feeds", post(poll_feeds))
         .route("/poll_feeds_rendered", post(poll_feeds_rendered))
-        .route("/feed_cors_proxy", get(feed_cors))
+        .route("/feed_cors_proxy/:url", get(feed_cors_wrapped))
         .route("/", get(index_page))
         .with_state(state)
         .layer(CorsLayer::permissive());
@@ -52,6 +52,12 @@ async fn main() -> Result<(), anyhow::Error> {
 type Feed = Either<rss::Channel, atom_syndication::Feed>;
 
 type Items = Either<rss::Item, atom_syndication::Entry>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum UnifiedItem {
+    Rss(rss::Item),
+    Atom(atom_syndication::Entry),
+}
 
 #[derive(Clone)]
 struct RssCache {
@@ -115,20 +121,20 @@ impl Default for ShowMode {
 }
 
 impl ShowMode {
-    fn order_feeds(&self, mut feeds: BTreeMap<Url, Feed>, max_from_feed: usize) -> Vec<Items> {
-        fn item_datetime(item: &Items) -> DateTime<FixedOffset> {
+    fn order_feeds(&self, mut feeds: BTreeMap<Url, Feed>, max_from_feed: usize) -> Vec<UnifiedItem> {
+        fn item_datetime(item: &UnifiedItem) -> DateTime<FixedOffset> {
             match item {
-                Either::Left(rss_item) => rss_item
+                UnifiedItem::Rss(rss_item) => rss_item
                     .pub_date
                     .as_ref()
                     .and_then(|date_str| DateTime::parse_from_rfc2822(date_str).ok())
                     .unwrap_or(DateTime::UNIX_EPOCH.into()),
-                Either::Right(atom_item) => {
+                UnifiedItem::Atom(atom_item) => {
                     atom_item.published.unwrap_or(DateTime::UNIX_EPOCH.into())
                 }
             }
         }
-        let mut items = vec![];
+        let mut items: Vec<UnifiedItem> = vec![];
         match self {
             ShowMode::EqualChronoShuffle => {
                 let mut rng = rand::thread_rng();
@@ -150,14 +156,14 @@ impl ShowMode {
                                 if rss.items.len().min(max_from_feed) <= ix {
                                     keys_to_delete.push(this_key.clone());
                                 } else {
-                                    items.push(Either::Left(rss.items[ix].clone()));
+                                    items.push(UnifiedItem::Rss(rss.items[ix].clone()));
                                 }
                             }
                             Either::Right(atom) => {
                                 if atom.entries.len().min(max_from_feed) <= ix {
                                     keys_to_delete.push(this_key.clone());
                                 } else {
-                                    items.push(Either::Right(atom.entries[ix].clone()));
+                                    items.push(UnifiedItem::Atom(atom.entries[ix].clone()));
                                 }
                             }
                         }
@@ -174,12 +180,12 @@ impl ShowMode {
                 for feed in feeds.into_values() {
                     match feed {
                         Either::Left(rss) => items
-                            .extend(rss.items.into_iter().take(max_from_feed).map(Either::Left)),
+                            .extend(rss.items.into_iter().take(max_from_feed).map(UnifiedItem::Rss)),
                         Either::Right(atom) => items.extend(
                             atom.entries
                                 .into_iter()
                                 .take(max_from_feed)
-                                .map(Either::Right),
+                                .map(UnifiedItem::Atom),
                         ),
                     }
                 }
@@ -203,14 +209,14 @@ impl ShowMode {
                                 if rss.items.len().min(max_from_feed) <= ix {
                                     keys_to_delete.push(this_key.clone());
                                 } else {
-                                    items.push(Either::Left(rss.items[ix].clone()));
+                                    items.push(UnifiedItem::Rss(rss.items[ix].clone()));
                                 }
                             }
                             Either::Right(atom) => {
                                 if atom.entries.len().min(max_from_feed) <= ix {
                                     keys_to_delete.push(this_key.clone());
                                 } else {
-                                    items.push(Either::Right(atom.entries[ix].clone()));
+                                    items.push(UnifiedItem::Atom(atom.entries[ix].clone()));
                                 }
                             }
                         }
@@ -230,7 +236,7 @@ impl ShowMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RssResponse {
-    pub items: Vec<Items>,
+    pub items: Vec<UnifiedItem>,
 }
 
 async fn index_page() -> Html<String> {
@@ -248,9 +254,18 @@ async fn index_page() -> Html<String> {
     Html(include_str!("../index.html").to_owned())
 }
 
-async fn feed_cors(
+async fn feed_cors_wrapped(
     State(state): State<RssCache>,
     extract::Path(url): extract::Path<Url>,
+) -> axum::response::Response {
+    let mut response = feed_cors(state, url).await.into_response();
+    response.headers_mut().insert(header::CONTENT_TYPE, "text/xml".parse().unwrap());
+    response
+}
+
+async fn feed_cors(
+    state: RssCache,
+    url: Url,
 ) -> Result<String, (StatusCode, String)> {
     fn render(feed: Feed) -> String {
         match feed {
@@ -287,6 +302,7 @@ async fn poll_feeds(
     Json(input): Json<RssRequest>,
 ) -> Result<Json<RssResponse>, (StatusCode, String)> {
     let response = poll_feed_inner(state, input).await?;
+    
     Ok(Json(response))
 }
 
@@ -294,12 +310,12 @@ async fn poll_feeds_rendered(
     State(state): State<RssCache>,
     Json(input): Json<RssRequest>,
 ) -> Result<Html<String>, (StatusCode, String)> {
-    fn render_item(item: Items) -> String {
+    fn render_item(item: UnifiedItem) -> String {
         let link;
         let title;
         let desc;
         match &item {
-            Either::Left(rss) => {
+            UnifiedItem::Rss(rss) => {
                 link = rss.link().unwrap_or("");
                 title = rss
                     .title()
@@ -308,7 +324,7 @@ async fn poll_feeds_rendered(
                     .unwrap_or("untitled");
                 desc = rss.description().or(rss.content()).unwrap_or("");
             }
-            Either::Right(atom) => {
+            UnifiedItem::Atom(atom) => {
                 title = atom.title.as_str();
                 link = atom.links.first().map(|l| l.href()).unwrap_or("");
                 desc = atom
