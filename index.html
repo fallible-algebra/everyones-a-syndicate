@@ -2,7 +2,7 @@
 <head>
 <style>
 body {
-    max-width: 400px;
+    max-width: 500px;
     display: flex;
     flex-direction: column;
     align-self: center;
@@ -32,7 +32,7 @@ function as_get_json(to_poll, mode, websites) {
         // Do something here! You're free!
         // These are generated via Serde, and Atom feeds are different to RSS feeds.
         // So I'd examine outputs from different feed sets if I were you. And then do whatever!
-        // a "Left" object is RSS and a "Right" object is Atom.
+        // No changes to the return type in short-medium term.
     });`
 }
 
@@ -77,7 +77,11 @@ async function run_try_it_out_button() {
         to_poll += "/";
     }
     let chosen_mode = document.querySelector('input[name="order"]:checked').value;
-    let websites = document.querySelector('#feed-list').value.trim().split(/[\n]+/).map(value => value.length > 0 ? `${value}`: "");
+    let websites_raw = document.querySelector('#feed-list').value;
+    if (websites_raw.trim() == "") {
+        websites_raw = document.querySelector('#feed-list').getAttribute("placeholder");
+    }
+    let websites = websites_raw.trim().split(/[\n]+/).map(value => value.length > 0 ? `${value}`: "");
     await fetch(`${to_poll}poll_feeds_rendered`, {
         method: "POST",
         headers: new Headers({'content-type': 'application/json'}),
@@ -97,27 +101,25 @@ document.addEventListener("DOMContentLoaded", function(event){
 </head>
 <body>
 <h1>
-RSS Syndication for Everyone that people can Actually Put On Their Web Pages
+Everyone's a Syndicate: Easier RSS/Atom Syndication for embedding in webpages. 
 </h1>
 
 <p>
-Hi. Social media kinda sucks. Websites can be good. Social websites can be good. But it's hard to have a social element without tying in lots of other external services.
+Hi. Social media kinda sucks. Websites can be good. Social websites can be good. But it's hard to have a social element on your own personal, fun website without tying in lots of other external services.
 </p>
 <p>
-This is a web server that fetches RSS feeds and sends them back to you. It can take multiple feeds and order the items in them in one of several ways you might want it to. Should be simple! But CORS issues get in the way.
+This external service is a web server that fetches RSS feeds and sends them back to you. It requires no auth key, no payment <a href="https://www.patreon.com/falliblethings" style="background-color: orange; color: white;">(but I do have a patreon)</a>, it can take multiple feeds and order the items in several ways, and there is an easy way of using it without building out things in javascript yourself.
 </p>
 <p>
-That is, you can give this server a list of RSS feeds of your pals, people whose work you like, or whatever, and get a little piece of code you can put in an HTML file for your website (it's in an iframe, if you want it to be. It should be simple to hand-modify too as you need to) or in a template if you're into that.
+This project is <a href="https://github.com/fallible-algebra/everyones-a-syndicate">open source under the MIT licence</a>. It's written in a language with low resource use and high performance, so it shouldn't cost that much to run your own instance.
 </p>
 <p>
-It is <a href="">open source</a> under the GPL licence. You can run a version yourself, but not make changes without publication. It's written in a language with low resource use and high performance, so it shouldn't cost that much to run your own instance. 
-</p>
-<p>
-This service also provides an RSS/Atom-only CORS proxy under `[server_url]/feed_cors_proxy`.
+This service also provides an RSS/Atom-only CORS proxy under "this website dot com /feed_cors_proxy/[encoded url]".
 </p>
 
 <div id="widget-builder">
-<textarea id="feed-list" onkeyup="set_snippet()"></textarea>
+<textarea id="feed-list" placeholder="https://fallible.net/atom.xml
+https://blog.fallible.net/feed/" onkeyup="set_snippet()"></textarea>
 
 <div id="order-type" class="choose">
     <div>
@@ -150,10 +152,9 @@ This service also provides an RSS/Atom-only CORS proxy under `[server_url]/feed_
 <textarea id="snippet" disabled></textarea>
 <button onclick="run_try_it_out_button()">Try it out</button>
 <p>
-By copying this code and/or using this service you accept responsibility for what happens to your website. Sanitise your inputs!
-Put things in an iframe or a shadow DOM! Sow distrust in me and my projects! The HTML-rendering endpoint sanitises the HTML from each item in the feeds with the <a href="https://crates.io/crates/ammonia">ammonia</a> rust crate, but the JSON is unsanitised at this time.
+By copying this code and/or using this service you accept responsibility for what happens to your website. Sanitise your inputs! Put things in an iframe or a shadow DOM! Refuse images! Sow distrust in me and my projects! The HTML-rendering endpoint sanitises the HTML from each item in the feeds with the <a href="https://crates.io/crates/ammonia">ammonia</a> rust crate, but the JSON is unsanitised at this time.
 </p>
-<iframe id="place-here" srcdoc="An example iframe">
+<iframe id="place-here" srcdoc="An example iframe, add some RSS feeds to the first text box and press the button above to populate it.">
 </iframe>
 
 </body>
