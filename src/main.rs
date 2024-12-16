@@ -51,8 +51,6 @@ async fn main() -> Result<(), anyhow::Error> {
 
 type Feed = Either<rss::Channel, atom_syndication::Feed>;
 
-type Items = Either<rss::Item, atom_syndication::Entry>;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum UnifiedItem {
     Rss(rss::Item),
@@ -314,6 +312,7 @@ async fn poll_feeds_rendered(
         let link;
         let title;
         let desc;
+        let date;
         match &item {
             UnifiedItem::Rss(rss) => {
                 link = rss.link().unwrap_or("");
@@ -334,9 +333,13 @@ async fn poll_feeds_rendered(
                     .unwrap_or("");
             }
         }
-        ammonia::clean(&format!(
+        let mut cleaner = ammonia::Builder::default();
+        cleaner.rm_tags(["img"]);
+        let mut desc = desc.to_string();
+        desc.truncate(100);
+        cleaner.clean(&format!(
             r#"<h3><a href={link} target="_blank">{title}</a></h3><div>{desc}</div><sub><a href="{link}" target="_blank">{link}</a></sub>"#
-        ))
+        )).to_string()
     }
     let response = poll_feed_inner(state, input).await?;
     let rendered = response
