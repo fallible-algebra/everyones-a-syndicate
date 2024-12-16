@@ -25,6 +25,30 @@ use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncReadExt, task::JoinSet};
 use tower_http::cors::CorsLayer;
 
+#[cfg(not(target_env = "msvc"))]
+use jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
+    let state = RssCache::new(5000, Duration::from_secs(60 * 15));
+    let address = "0.0.0.0:3000";
+    println!("Opening at {address}");
+    let router = Router::new()
+        .route("/poll_feeds", post(poll_feeds))
+        .route("/poll_feeds_rendered", post(poll_feeds_rendered))
+        .route("/feed_cors_proxy", get(feed_cors))
+        .route("/", get(index_page))
+        .with_state(state)
+        .layer(CorsLayer::permissive());
+    let listener = tokio::net::TcpListener::bind(address).await.unwrap();
+    axum::serve(listener, router).await.unwrap();
+    Ok(())
+}
+
 type Feed = Either<rss::Channel, atom_syndication::Feed>;
 
 type Items = Either<rss::Item, atom_syndication::Entry>;
@@ -207,23 +231,6 @@ impl ShowMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RssResponse {
     pub items: Vec<Items>,
-}
-
-#[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
-    let state = RssCache::new(5000, Duration::from_secs(60 * 15));
-    let address = "0.0.0.0:3001";
-    println!("Opening at {address}");
-    let router = Router::new()
-        .route("/poll_feeds", post(poll_feeds))
-        .route("/poll_feeds_rendered", post(poll_feeds_rendered))
-        .route("/feed_cors_proxy", get(feed_cors))
-        .route("/", get(index_page))
-        .with_state(state)
-        .layer(CorsLayer::permissive());
-    let listener = tokio::net::TcpListener::bind(address).await.unwrap();
-    axum::serve(listener, router).await.unwrap();
-    Ok(())
 }
 
 async fn index_page() -> Html<String> {
