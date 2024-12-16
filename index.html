@@ -151,7 +151,7 @@ This service also provides an RSS/Atom-only CORS proxy under `[server_url]/feed_
 <button onclick="run_try_it_out_button()">Try it out</button>
 <p>
 By copying this code and/or using this service you accept responsibility for what happens to your website. Sanitise your inputs!
-Put things in an iframe or a shadow DOM! Sow distrust in me and my projects! The HTML from rss feeds is sanitised with the <a href="https://crates.io/crates/ammonia">ammonia</a> rust crate.
+Put things in an iframe or a shadow DOM! Sow distrust in me and my projects! The HTML-rendering endpoint sanitises the HTML from each item in the feeds with the <a href="https://crates.io/crates/ammonia">ammonia</a> rust crate, but the JSON is unsanitised at this time.
 </p>
 <iframe id="place-here" srcdoc="An example iframe">
 </iframe>

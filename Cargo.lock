@@ -420,6 +420,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "everyone-a-syndicate"
+version = "0.1.0"
+dependencies = [
+ "ammonia",
+ "anyhow",
+ "atom_syndication",
+ "axum",
+ "chrono",
+ "either",
+ "moka",
+ "rand",
+ "reqwest",
+ "rss",
+ "serde",
+ "serde_repr",
+ "tokio",
+ "tower-http",
+ "url",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1396,27 +1417,6 @@ dependencies = [
  "never",
  "quick-xml",
  "serde",
-]
-
-[[package]]
-name = "rss-queen"
-version = "0.1.0"
-dependencies = [
- "ammonia",
- "anyhow",
- "atom_syndication",
- "axum",
- "chrono",
- "either",
- "moka",
- "rand",
- "reqwest",
- "rss",
- "serde",
- "serde_repr",
- "tokio",
- "tower-http",
- "url",
 ]
 
 [[package]]
