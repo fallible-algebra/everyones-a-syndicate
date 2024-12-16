@@ -99,7 +99,8 @@ async function run_try_it_out_button() {
 }
 
 document.addEventListener("DOMContentLoaded", function(event){
-    set_snippet()
+    set_snippet();
+    document.getElementById('replace-me').innerHTML = window.location.href + "";
 });
 </script>
 </head>
@@ -118,7 +119,7 @@ This external service is a web server that fetches RSS feeds and sends them back
 This project is <a href="https://github.com/fallible-algebra/everyones-a-syndicate">open source under the MIT licence</a>. It's written in a language with low resource use and high performance, so it shouldn't cost that much to run your own instance.
 </p>
 <p>
-This service also provides an RSS/Atom-only CORS proxy under "this website dot com /feed_cors_proxy/[encoded url]".
+This service also provides an RSS/Atom-only CORS proxy under "<span id="replace-me"></span>feed_cors_proxy/[encoded url]".
 </p>
 
 <div id="widget-builder">
