@@ -247,21 +247,20 @@ async fn feed_cors(
         }
     }
     if let Some(feed) = state.feed_cache.get(&url).await {
-        render(feed);
+        Ok(render(feed))
     } else {
-        let res = reqwest::get(url)
+        let res = reqwest::get(url.clone())
             .await
-            .map_err(|err| (StatusCode::NOT_FOUND, err.to_string()))?;
+            .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
         let text = res
             .text()
             .await
-            .map_err(|err| (StatusCode::NOT_FOUND, err.to_string()))?;
+            .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
         let parsed =
-            parse_as_rss_or_atom(text).ok_or_else(|| (StatusCode::NOT_FOUND, String::new()))?;
-
-        let rendered = render(parsed);
+            parse_as_rss_or_atom(text).ok_or_else(|| (StatusCode::BAD_REQUEST, String::new()))?;
+        state.feed_cache.insert(url.clone(), parsed.clone()).await;
+        Ok(render(parsed))
     }
-    unimplemented!()
 }
 
 async fn poll_feeds(
@@ -300,9 +299,9 @@ async fn poll_feeds_rendered(
                     .unwrap_or("");
             }
         }
-        format!(
+        ammonia::clean(&format!(
             r#"<h3><a href={link} target="_blank">{title}</a></h3><div>{desc}</div><sub><a href="{link}" target="_blank">{link}</a></sub>"#
-        )
+        ))
     }
     let response = poll_feed_inner(state, input).await?;
     let rendered = response
@@ -369,7 +368,7 @@ async fn poll_feed_inner(
     Ok(response)
 }
 
-fn parse_as_rss_or_atom(text: String) -> Option<Either<rss::Channel, atom_syndication::Feed>> {
+fn parse_as_rss_or_atom(text: String) -> Option<Feed> {
     let rss = rss::Channel::from_str(&text);
     if let Ok(rss) = rss {
         Some(Either::Left(rss))

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ammonia = "4.0.0"
 anyhow = "1.0.94"
 atom_syndication = { version = "0.12.5", features = ["serde"] }
 axum = "0.7.9"

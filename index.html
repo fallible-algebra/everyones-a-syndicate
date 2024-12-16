@@ -7,16 +7,48 @@ body {
     flex-direction: column;
     align-self: center;
     font-family: "";
+    margin: auto;
+}
+
+#widget-builder {
+    display: flex;
+    flex-direction: column;
+}
+
+#snippet {
+    height: 30em;
 }
 </style>
 <script type="text/javascript">
 
-function as_get_json(mode, websites) {
-
+function as_get_json(to_poll, mode, websites) {
+    return `fetch("${to_poll}poll_feeds", {
+        method: "POST", headers: new Headers({'content-type': 'application/json'}),
+        body: JSON.stringify({feeds: [${websites}], 
+        show_mode: '${mode}'}), 
+    })
+    .then(result => result.json())
+    .then(json => {
+        // Do something here! You're free!
+        // These are generated via Serde, and Atom feeds are different to RSS feeds.
+        // So I'd examine outputs from different feed sets if I were you. And then do whatever!
+        // a "Left" object is RSS and a "Right" object is Atom.
+    });`
 }
 
-function as_get_html(mode, websites) {
-
+function as_get_html(to_poll, mode, websites) {
+    return `\<script type="text/javascript"\>
+fetch("${to_poll}poll_feeds_rendered", {
+        method: "POST", headers: new Headers({'content-type': 'application/json'}),
+        body: JSON.stringify({feeds: [${websites}], 
+        show_mode: '${mode}'}), 
+    })
+    .then(result => result.text())
+    .then(body => {
+        document.getElementById('place-here').setAttribute("srcdoc", body)
+    });
+\<\/script\>
+\<iframe id="place-here"\>\<\/iframe\>`;
 }
 
 function set_snippet() {
@@ -26,18 +58,14 @@ function set_snippet() {
     }
     let chosen_mode = document.querySelector('input[name="order"]:checked').value;
     let websites = document.querySelector('#feed-list').value.trim().split(/[\n]+/).map(value => value.length > 0 ? `"${value}"`: "");
-    document.querySelector('#snippet').value = `\<script type="text/javascript"\>
-fetch("${to_poll}poll_feeds", {
-        method: "POST", headers: new Headers({'content-type': 'application/json'}),
-        body: JSON.stringify({feeds: [${websites}], 
-        show_mode: '${chosen_mode}'}), 
-    })
-    .then(result => result.text())
-    .then(body => {
-        document.getElementById('place-here').setAttribute("srcdoc", body)
-    });
-\<\/script\>
-\<iframe id="place-here"\>\<\/iframe\>`;
+    let code_type = document.querySelector('input[name=code-type]:checked').value;
+    let script;
+    if (code_type == "html") {
+        script = as_get_html(to_poll, chosen_mode, websites);
+    } else if (code_type == "json") {
+        script = as_get_json(to_poll, chosen_mode, websites);
+    }
+    document.querySelector('#snippet').value = script;
 }
 
 document.addEventListener("DOMContentLoaded", function(event){
@@ -54,17 +82,17 @@ RSS Syndication for Everyone that people can Actually Put On Their Web Pages
 Hi. Social media kinda sucks. Websites can be good. Social websites can be good. But it's hard to have a social element without tying in lots of other stuff like comment providers.
 </p>
 <p>
-This is a web server that fetches RSS feeds and sends them back to you. It can take multiple feeds and order the items in them in one of several ways you might want it to.
+This is a web server that fetches RSS feeds and sends them back to you. It can take multiple feeds and order the items in them in one of several ways you might want it to. Should be simple! But CORS issues get in the way.
 </p>
 <p>
 That is, you can give this server a list of RSS feeds of your pals, people whose work you like, or whatever, and get a little piece of code you can put in an HTML file for your website (it's in an iframe, if you want it to be. It should be simple to hand-modify too as you need to) or in a template if you're into that.
 </p>
 <p>
-It is <a href="">open source</a> under the GPL licence. You can run a version yourself, but not monetise it, or make changes without publication. It's written in a language with low resource use and high performance, so it shouldn't cost that much to run your own instance. I tried to come up with a way of doing this client-side only but CORS issues got in the way without a reliable and free proxy. This service also provides an RSS/Atom-only CORS proxy under `[server_url]/feed_cors_proxy`.
+It is <a href="">open source</a> under the GPL licence. You can run a version yourself, but not monetise it, or make changes without publication. It's written in a language with low resource use and high performance, so it shouldn't cost that much to run your own instance. This service also provides an RSS/Atom-only CORS proxy under `[server_url]/feed_cors_proxy`.
 </p>
 
 <div id="widget-builder">
-<textarea id="feed-list"></textarea>
+<textarea id="feed-list" onkeyup="set_snippet()"></textarea>
 
 <div id="order-type" class="choose">
     <div>
@@ -96,7 +124,9 @@ It is <a href="">open source</a> under the GPL licence. You can run a version yo
 
 <textarea id="snippet" disabled></textarea>
 
-<iframe id="place-here" srcdoc="hello">
+By copying this code and/or using this service you accept responsibility for what happens to your website. Sanitise your inputs!
+Put things in an iframe or a shadow DOM! Sow distrust in me and my projects!
+<iframe id="place-here" srcdoc="An example iframe">
 </iframe>
 
 </body>
