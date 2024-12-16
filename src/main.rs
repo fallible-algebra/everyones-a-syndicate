@@ -23,13 +23,14 @@ use response::Html;
 use routing::{get, post};
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncReadExt, task::JoinSet};
+use tower_http::cors::CorsLayer;
 
 type Feed = Either<rss::Channel, atom_syndication::Feed>;
 
 type Items = Either<rss::Item, atom_syndication::Entry>;
 
 #[derive(Clone)]
-pub struct RssCache {
+struct RssCache {
     pub feed_cache: Cache<Url, Feed>,
     pub request_cache: Cache<RssRequest, RssResponse>,
     pub max_feed_request: usize,
@@ -75,7 +76,7 @@ impl Default for MaxFeedItems {
 pub enum ShowMode {
     EqualChronoShuffle,
     ReverseChronological,
-    EqualChronoAlphabetical, 
+    EqualChronoAlphabetical,
 }
 
 impl Default for ShowMode {
@@ -199,7 +200,7 @@ impl ShowMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RssResponse {
+struct RssResponse {
     pub items: Vec<Items>,
 }
 
@@ -210,32 +211,114 @@ async fn main() -> Result<(), anyhow::Error> {
     println!("Opening at {address}");
     let router = Router::new()
         .route("/poll_feeds", post(poll_feeds))
-        .route("/poll_feeds_rendered", post(poll_feeds))
+        .route("/poll_feeds_rendered", post(poll_feeds_rendered))
+        .route("/feed_cors_proxy", get(feed_cors))
         .route("/", get(index_page))
-        .with_state(state);
+        .with_state(state)
+        .layer(CorsLayer::permissive());
     let listener = tokio::net::TcpListener::bind(address).await.unwrap();
     axum::serve(listener, router).await.unwrap();
     Ok(())
 }
 
-
 async fn index_page() -> Html<String> {
     #[cfg(debug_assertions)]
     {
         let mut dst = String::new();
-        let _ = tokio::fs::File::open("index.html").await.unwrap().read_to_string(&mut dst).await;
+        let _ = tokio::fs::File::open("index.html")
+            .await
+            .unwrap()
+            .read_to_string(&mut dst)
+            .await;
         Html(dst)
     }
     #[cfg(not(debug_assertions))]
     Html(include_str!("../index.html").to_owned())
 }
 
-pub async fn poll_feeds(
+async fn feed_cors(
+    State(state): State<RssCache>,
+    extract::Path(url): extract::Path<Url>,
+) -> Result<String, (StatusCode, String)> {
+    fn render(feed: Feed) -> String {
+        match feed {
+            Either::Left(rss) => rss.to_string(),
+            Either::Right(atom) => atom.to_string(),
+        }
+    }
+    if let Some(feed) = state.feed_cache.get(&url).await {
+        render(feed);
+    } else {
+        let res = reqwest::get(url)
+            .await
+            .map_err(|err| (StatusCode::NOT_FOUND, err.to_string()))?;
+        let text = res
+            .text()
+            .await
+            .map_err(|err| (StatusCode::NOT_FOUND, err.to_string()))?;
+        let parsed =
+            parse_as_rss_or_atom(text).ok_or_else(|| (StatusCode::NOT_FOUND, String::new()))?;
+
+        let rendered = render(parsed);
+    }
+    unimplemented!()
+}
+
+async fn poll_feeds(
     State(state): State<RssCache>,
     Json(input): Json<RssRequest>,
 ) -> Result<Json<RssResponse>, (StatusCode, String)> {
+    let response = poll_feed_inner(state, input).await?;
+    Ok(Json(response))
+}
+
+async fn poll_feeds_rendered(
+    State(state): State<RssCache>,
+    Json(input): Json<RssRequest>,
+) -> Result<Html<String>, (StatusCode, String)> {
+    fn render_item(item: Items) -> String {
+        let link;
+        let title;
+        let desc;
+        match &item {
+            Either::Left(rss) => {
+                link = rss.link().unwrap_or("");
+                title = rss
+                    .title()
+                    .or(rss.source().and_then(|s| s.title()))
+                    .or(rss.guid().map(|g| g.value()))
+                    .unwrap_or("untitled");
+                desc = rss.description().or(rss.content()).unwrap_or("");
+            }
+            Either::Right(atom) => {
+                title = atom.title.as_str();
+                link = atom.links.first().map(|l| l.href()).unwrap_or("");
+                desc = atom
+                    .content
+                    .as_ref()
+                    .and_then(|c| c.value.as_deref())
+                    .unwrap_or("");
+            }
+        }
+        format!(
+            r#"<h3><a href={link} target="_blank">{title}</a></h3><div>{desc}</div><sub><a href="{link}" target="_blank">{link}</a></sub>"#
+        )
+    }
+    let response = poll_feed_inner(state, input).await?;
+    let rendered = response
+        .items
+        .into_iter()
+        .map(render_item)
+        .collect::<String>();
+    Ok(Html(rendered))
+}
+
+async fn poll_feed_inner(
+    state: RssCache,
+    input: RssRequest,
+) -> Result<RssResponse, (StatusCode, String)> {
     if let Some(cached_response) = state.request_cache.get(&input).await {
-        return Ok(Json(cached_response));
+        return Ok(cached_response);
     }
     let input_cloned = input.clone();
     let mut set: JoinSet<Result<_, anyhow::Error>> = JoinSet::new();
@@ -255,17 +338,10 @@ pub async fn poll_feeds(
                     .await
                     .map_err(|err| anyhow!("{err}"))?;
                 let text = response.text().await.map_err(|err| anyhow!("{err}"))?;
-                let rss = rss::Channel::from_str(&text);
-                if let Ok(rss) = rss {
-                    cache.insert(url.clone(), Either::Left(rss.clone())).await;
-                    Ok((url, Either::Left(rss)))
-                } else {
-                    let atom = atom_syndication::Feed::from_str(&text).map_err(|err| {
-                        anyhow!("Could not parse as RSS or Atom feed: {rss:?}, {err:?}")
-                    })?;
-                    cache.insert(url.clone(), Either::Right(atom.clone())).await;
-                    Ok((url, Either::Right(atom)))
-                }
+                let parsed = parse_as_rss_or_atom(text)
+                    .ok_or_else(|| anyhow!("Could not parse as RSS or Atom feed: {url:?}"))?;
+                cache.insert(url.clone(), parsed.clone()).await;
+                Ok((url, parsed))
             }
         });
     }
@@ -282,8 +358,23 @@ pub async fn poll_feeds(
         };
         feeds.insert(url, feed);
     }
-    let ordered = input.show_mode.order_feeds(feeds, input.max_feed_items.0.min(state.max_items_per_feed));
+    let ordered = input
+        .show_mode
+        .order_feeds(feeds, input.max_feed_items.0.min(state.max_items_per_feed));
     let response = RssResponse { items: ordered };
-    state.request_cache.insert(input_cloned, response.clone()).await;
-    Ok(Json(response))
+    state
+        .request_cache
+        .insert(input_cloned, response.clone())
+        .await;
+    Ok(response)
+}
+
+fn parse_as_rss_or_atom(text: String) -> Option<Either<rss::Channel, atom_syndication::Feed>> {
+    let rss = rss::Channel::from_str(&text);
+    if let Ok(rss) = rss {
+        Some(Either::Left(rss))
+    } else {
+        let atom = atom_syndication::Feed::from_str(&text).ok()?;
+        Some(Either::Right(atom))
+    }
 }
