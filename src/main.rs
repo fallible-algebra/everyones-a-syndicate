@@ -312,7 +312,6 @@ async fn poll_feeds_rendered(
         let link;
         let title;
         let desc;
-        let date;
         match &item {
             UnifiedItem::Rss(rss) => {
                 link = rss.link().unwrap_or("");
