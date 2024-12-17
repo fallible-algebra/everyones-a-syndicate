@@ -335,7 +335,8 @@ async fn poll_feeds_rendered(
         let mut cleaner = ammonia::Builder::default();
         cleaner.rm_tags(["img"]);
         let mut desc = desc.to_string();
-        desc.truncate(100);
+        desc.truncate(256);
+        desc = cleaner.clean(&desc).to_string();
         cleaner.clean(&format!(
             r#"<h3><a href={link} target="_blank">{title}</a></h3><div>{desc}</div><sub><a href="{link}" target="_blank">{link}</a></sub>"#
         )).to_string()
