@@ -333,7 +333,8 @@ async fn poll_feeds_rendered(
             }
         }
         let mut cleaner = ammonia::Builder::default();
-        cleaner.rm_tags(["img"]);
+        cleaner.rm_tags(["img"])
+            .add_tag_attributes("a", ["target"]);
         let mut desc = desc.to_string();
         desc.truncate(256);
         desc = cleaner.clean(&desc).to_string();
