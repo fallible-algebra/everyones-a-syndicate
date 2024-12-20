@@ -62,7 +62,9 @@ function everyones_a_syndicate_update() {
             document.getElementById('place-here').setAttribute("srcdoc", style + body)
         });
 }
-everyones_a_syndicate_update();
+document.addEventListener("DOMContentLoaded", function(event){
+    everyones_a_syndicate_update();
+});
 \<\/script\>`;
 }
 
