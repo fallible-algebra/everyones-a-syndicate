@@ -5,9 +5,7 @@
 /// way. I don't know if people have done this much before. I don't remember
 /// this kind of thing from the old rss days.
 use std::{
-    collections::{BTreeMap, BTreeSet},
-    str::FromStr,
-    time::Duration,
+    collections::{BTreeMap, BTreeSet}, default, str::FromStr, time::Duration
 };
 
 use anyhow::anyhow;
@@ -94,6 +92,12 @@ pub struct RssRequest {
     pub max_feed_items: MaxFeedItems,
     #[serde(default)]
     pub show_mode: ShowMode,
+    #[serde(default = "include_minimal_css_default")]
+    pub include_minimal_css: bool,
+}
+
+fn include_minimal_css_default() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -312,6 +316,7 @@ async fn poll_feeds_rendered(
         let link;
         let title;
         let desc;
+        let date;
         match &item {
             UnifiedItem::Rss(rss) => {
                 link = rss.link().unwrap_or("");
@@ -321,6 +326,7 @@ async fn poll_feeds_rendered(
                     .or(rss.guid().map(|g| g.value()))
                     .unwrap_or("untitled");
                 desc = rss.description().or(rss.content()).unwrap_or("");
+                date = rss.pub_date().and_then(|date| chrono::DateTime::parse_from_rfc2822(date).ok()).map(|date| date.format("%Y-%m-%d, %H:%M").to_string()).unwrap_or_else(|| "No publication date".to_string());
             }
             UnifiedItem::Atom(atom) => {
                 title = atom.title.as_str();
@@ -330,6 +336,7 @@ async fn poll_feeds_rendered(
                     .as_ref()
                     .and_then(|c| c.value.as_deref())
                     .unwrap_or("");
+                date = atom.published().map(|date| date.format("%Y-%m-%d, %H:%M").to_string()).unwrap_or_else(|| "No publication date".to_string());
             }
         }
         let mut cleaner = ammonia::Builder::default();
@@ -339,16 +346,22 @@ async fn poll_feeds_rendered(
         desc.truncate(256);
         desc = cleaner.clean(&desc).to_string();
         cleaner.clean(&format!(
-            r#"<h3><a href={link} target="_blank">{title}</a></h3><div>{desc}</div><sub><a href="{link}" target="_blank">{link}</a></sub>"#
+            r#"<li class="syndicator-item"><h3><a href={link} target="_blank">{title}</a></h3><sub>{date}</sub><div>{desc}</div><sub><a href="{link}" target="_blank">{link}</a></sub></li>"#
         )).to_string()
     }
+    let use_minimal_css = input.include_minimal_css;
     let response = poll_feed_inner(state, input).await?;
     let rendered = response
         .items
         .into_iter()
         .map(render_item)
         .collect::<String>();
-    Ok(Html(rendered))
+    let minimal_css = if use_minimal_css {
+        "<style>ul.syndicator-list { list-style-type: none; padding: 0; margin: 0; }</style>"
+    } else {
+        ""
+    };
+    Ok(Html(format!("{minimal_css}<ul class='syndicator-list'>{rendered}</ul>")))
 }
 
 async fn poll_feed_inner(
