@@ -340,14 +340,20 @@ async fn poll_feeds_rendered(
             }
         }
         let mut cleaner = ammonia::Builder::default();
-        cleaner.rm_tags(["img"])
-            .add_tag_attributes("a", ["target"]);
+        cleaner.rm_tags(["img"]);
         let mut desc = desc.to_string();
         desc.truncate(256);
         desc = cleaner.clean(&desc).to_string();
-        cleaner.clean(&format!(
-            r#"<li class="syndicator-item"><h3><a href={link} target="_blank">{title}</a></h3><sub>{date}</sub><div>{desc}</div><sub><a href="{link}" target="_blank">{link}</a></sub></li>"#
-        )).to_string()
+        let title = cleaner.clean(title);
+        let link = cleaner.clean(link);
+        format!(
+r#"<li class="syndicator-item">
+<h3 class="syndicator-title"><a href={link} target="_blank">{title}</a></h3>
+<sub class="syndicator-date">{date}</sub>
+<div class="syndicator-description">{desc}</div>
+<sub class="syndicator-plain-link"><a href="{link}" target="_blank">{link}</a></sub>
+</li>"#
+        )
     }
     let use_minimal_css = input.include_minimal_css;
     let response = poll_feed_inner(state, input).await?;
