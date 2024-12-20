@@ -6,13 +6,17 @@ body {
     display: flex;
     flex-direction: column;
     align-self: center;
-    font-family: "";
+    font-family: sans-serif;
     margin: auto;
 }
 
 #widget-builder {
     display: flex;
     flex-direction: column;
+}
+
+#widget-builder > div:nth-child(2n - 1) {
+    background-color: whitesmoke;
 }
 
 #snippet {
@@ -36,26 +40,47 @@ function as_get_json(to_poll, mode, websites) {
         // Do something here! You're free!
         // These are generated via Serde, and Atom feeds are different to RSS feeds.
         // So I'd examine outputs from different feed sets if I were you. And then do whatever!
-        // No changes to the return type in short-medium term.
+        // No changes to the return type expected, unless something goes very wrong.
     });`
 }
 
-function as_get_html_script_only(to_poll, mode, websites) {
+function as_get_html_script_only(to_poll, mode, websites, styling) {
     return `\<script type="text/javascript"\>
-fetch("${to_poll}poll_feeds_rendered", {
-        method: "POST", headers: new Headers({'content-type': 'application/json'}),
-        body: JSON.stringify({feeds: [${websites}], 
-        show_mode: '${mode}'}), 
-    })
-    .then(result => result.text())
-    .then(body => {
-        document.getElementById('place-here').setAttribute("srcdoc", body)
-    });
+function everyones_a_syndicate_update() {
+    // Set the style 
+    let style = "\\<style\\>" + ${styling} + "\\</style\\>";
+    document.getElementById('place-here').setAttribute("srcdoc", style);
+    // Fetch the rendered HTML.
+    return fetch("${to_poll}poll_feeds_rendered", {
+            method: "POST", headers: new Headers({'content-type': 'application/json'}),
+            body: JSON.stringify({feeds: [${websites}], 
+            show_mode: '${mode}'}), 
+        })
+        .then(result => result.text())
+        .then(body => {
+            // pre-append the style to the value of the 
+            document.getElementById('place-here').setAttribute("srcdoc", style + body)
+        });
+}
+everyones_a_syndicate_update();
 \<\/script\>`;
 }
 
-function as_get_html(to_poll, mode, websites) {
-    return as_get_html_script_only(to_poll, mode, websites) + '\n\<iframe id="place-here"\>\<\/iframe\>';
+function as_get_html(to_poll, mode, websites, styling) {
+    return as_get_html_script_only(to_poll, mode, websites, styling) + '\n\<iframe id="place-here" style="height: 20em"\>\<\/iframe\>';
+}
+
+function get_styling(style_option, custom_style_text) {
+    switch (style_option) {
+        case 'custom-style':
+            return `"${custom_style_text.replaceAll(/\s/g, "")}"`
+        case 'import-from-page':
+            // This code for "fetch all the CSS from the page" was taken from:
+            // https://developer.mozilla.org/en-US/docs/Web/API/StyleSheetList#get_all_css_rules_for_the_document_using_array_methods
+            return `[...document.styleSheets].map((styleSheet) => { try { return [...styleSheet.cssRules].map((rule) => rule.cssText).join(""); } catch (e) {} }).filter(Boolean).join("\\n")`
+        default: 
+            return '""';
+    }
 }
 
 function set_snippet() {
@@ -66,11 +91,21 @@ function set_snippet() {
     let chosen_mode = document.querySelector('input[name="order"]:checked').value;
     let websites = document.querySelector('#feed-list').value.trim().split(/[\n]+/).map(value => value.length > 0 ? `"${value}"`: "");
     let code_type = document.querySelector('input[name=code-type]:checked').value;
+    let style_type = document.querySelector('input[name=style-choice]:checked').value;
     let script;
-    if (code_type == "html") {
-        script = as_get_html(to_poll, chosen_mode, websites);
-    } else if (code_type == "json") {
+    if (code_type == 'html') {
+        document.querySelector('#style-options').style.display = '';
+        let style_text = document.querySelector('#style-box').value;
+        let styling = get_styling(style_type, style_text);
+        script = as_get_html(to_poll, chosen_mode, websites, styling);
+    } else if (code_type == 'json') {
+        document.querySelector('#style-options').style.display = 'none';
         script = as_get_json(to_poll, chosen_mode, websites);
+    }
+    if (style_type == 'custom-style') {
+        document.querySelector('#style-box').style.display = '';
+    } else {
+        document.querySelector('#style-box').style.display = 'none';
     }
     document.querySelector('#snippet').value = script;
 }
@@ -86,6 +121,7 @@ async function run_try_it_out_button() {
         websites_raw = document.querySelector('#feed-list').getAttribute("placeholder");
     }
     let websites = websites_raw.trim().split(/[\n]+/).map(value => value.length > 0 ? `${value}`: "");
+    let styling = `\<style\>${eval(get_styling(document.querySelector('input[name=style-choice]:checked').value, document.querySelector('#style-box').value))}\</style\>`;
     await fetch(`${to_poll}poll_feeds_rendered`, {
         method: "POST",
         headers: new Headers({'content-type': 'application/json'}),
@@ -94,7 +130,7 @@ async function run_try_it_out_button() {
     })
     .then(result => result.text())
     .then(body => {
-        document.getElementById('place-here').setAttribute("srcdoc", body)
+        document.getElementById('place-here').setAttribute("srcdoc", styling + body)
     });
 }
 
@@ -152,12 +188,38 @@ https://blog.fallible.net/feed/" onkeyup="set_snippet()"></textarea>
     </div>
 </div>
 
+<div id="style-options" class="choose">
+    <div>
+        <input type="radio" name="style-choice" id="import-from-page" value="import-from-page" onchange="set_snippet()" checked>
+        <label for="import-from-page">Copy page CSS</label>
+    </div>
+    <div>
+        <input type="radio" name="style-choice" id="custom-style" value="custom-style" onchange="set_snippet()">
+        <label for="custom-style">Custom CSS</label>
+    </div>
+    <div>
+        <input type="radio" name="style-choice" id="no-style" value="no-style" onchange="set_snippet()">
+        <label for="no-style">Don't add CSS</label>
+    </div>
+    <textarea id="style-box" placeholder="Custom CSS here." style="display: none;" onkeyup="set_snippet()"></textarea>
 </div>
+
+
+<!-- <div>
+    <div>
+        <input type="range" name="iframe-size" id="iframe-size" onchange="set_snippet()">
+        <label for="iframe-size">IFrame Height (slider)</label>
+    </div>
+    <div>
+        <input type="text" name="iframe-size2" id="iframe-size2">
+        <label for="iframe-size2">IFrame Height (direct)</label>
+    </div>
+</div> -->
 
 <textarea id="snippet" disabled></textarea>
 <button onclick="run_try_it_out_button()">Try it out</button>
 <p>
-By copying this code and/or using this service you accept responsibility for what happens to your website. Sanitise your inputs! Put things in an iframe or a shadow DOM! Refuse images! Sow distrust in me and my projects! The HTML-rendering endpoint sanitises the HTML from each item in the feeds with the <a href="https://crates.io/crates/ammonia">ammonia</a> rust crate, but the JSON is unsanitised at this time.
+By copying this code and/or using this service you accept responsibility for what happens to your website. Sanitise your inputs! Put things in an iframe or a shadow DOM! Refuse images (the HTML rendering endpoint already does this)! Sow distrust in me and my projects! The HTML-rendering endpoint sanitises the HTML from each item in the feeds with the <a href="https://crates.io/crates/ammonia">ammonia</a> rust crate, but the JSON is unsanitised at this time.
 </p>
 <iframe id="place-here" srcdoc="An example iframe, add some RSS feeds to the first text box and press the button above to populate it.">
 </iframe>
