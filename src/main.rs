@@ -5,7 +5,10 @@
 /// way. I don't know if people have done this much before. I don't remember
 /// this kind of thing from the old rss days.
 use std::{
-    collections::{BTreeMap, BTreeSet}, default, str::FromStr, time::Duration
+    collections::{BTreeMap, BTreeSet},
+    default,
+    str::FromStr,
+    time::Duration,
 };
 
 use anyhow::anyhow;
@@ -123,7 +126,11 @@ impl Default for ShowMode {
 }
 
 impl ShowMode {
-    fn order_feeds(&self, mut feeds: BTreeMap<Url, Feed>, max_from_feed: usize) -> Vec<UnifiedItem> {
+    fn order_feeds(
+        &self,
+        mut feeds: BTreeMap<Url, Feed>,
+        max_from_feed: usize,
+    ) -> Vec<UnifiedItem> {
         fn item_datetime(item: &UnifiedItem) -> DateTime<FixedOffset> {
             match item {
                 UnifiedItem::Rss(rss_item) => rss_item
@@ -181,8 +188,12 @@ impl ShowMode {
             ShowMode::ReverseChronological => {
                 for feed in feeds.into_values() {
                     match feed {
-                        Either::Left(rss) => items
-                            .extend(rss.items.into_iter().take(max_from_feed).map(UnifiedItem::Rss)),
+                        Either::Left(rss) => items.extend(
+                            rss.items
+                                .into_iter()
+                                .take(max_from_feed)
+                                .map(UnifiedItem::Rss),
+                        ),
                         Either::Right(atom) => items.extend(
                             atom.entries
                                 .into_iter()
@@ -261,14 +272,13 @@ async fn feed_cors_wrapped(
     extract::Path(url): extract::Path<Url>,
 ) -> axum::response::Response {
     let mut response = feed_cors(state, url).await.into_response();
-    response.headers_mut().insert(header::CONTENT_TYPE, "text/xml".parse().unwrap());
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, "text/xml".parse().unwrap());
     response
 }
 
-async fn feed_cors(
-    state: RssCache,
-    url: Url,
-) -> Result<String, (StatusCode, String)> {
+async fn feed_cors(state: RssCache, url: Url) -> Result<String, (StatusCode, String)> {
     fn render(feed: Feed) -> String {
         match feed {
             Either::Left(rss) => rss.to_string(),
@@ -283,8 +293,17 @@ async fn feed_cors(
     } else if let Some(feed) = state.feed_cache.get(&url).await {
         Ok(render(feed))
     } else {
-        let client = Client::builder().timeout(Duration::from_secs(2)).build().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Could not build client to process request".to_string()))?;
-        let res = client.get(url.clone())
+        let client = Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Could not build client to process request".to_string(),
+                )
+            })?;
+        let res = client
+            .get(url.clone())
             .send()
             .await
             .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
@@ -306,7 +325,7 @@ async fn poll_feeds(
     Json(input): Json<RssRequest>,
 ) -> Result<Json<RssResponse>, (StatusCode, String)> {
     let response = poll_feed_inner(state, input).await?;
-    
+
     Ok(Json(response))
 }
 
@@ -328,7 +347,11 @@ async fn poll_feeds_rendered(
                     .or(rss.guid().map(|g| g.value()))
                     .unwrap_or("untitled");
                 desc = rss.description().or(rss.content()).unwrap_or("");
-                date = rss.pub_date().and_then(|date| chrono::DateTime::parse_from_rfc2822(date).ok()).map(|date| date.format("%Y-%m-%d, %H:%M").to_string()).unwrap_or_else(|| "No publication date".to_string());
+                date = rss
+                    .pub_date()
+                    .and_then(|date| chrono::DateTime::parse_from_rfc2822(date).ok())
+                    .map(|date| date.format("%Y-%m-%d, %H:%M").to_string())
+                    .unwrap_or_else(|| "No publication date".to_string());
             }
             UnifiedItem::Atom(atom) => {
                 title = atom.title.as_str();
@@ -338,18 +361,20 @@ async fn poll_feeds_rendered(
                     .as_ref()
                     .and_then(|c| c.value.as_deref())
                     .unwrap_or("");
-                date = atom.published().map(|date| date.format("%Y-%m-%d, %H:%M").to_string()).unwrap_or_else(|| "No publication date".to_string());
+                date = atom
+                    .published()
+                    .map(|date| date.format("%Y-%m-%d, %H:%M").to_string())
+                    .unwrap_or_else(|| "No publication date".to_string());
             }
         }
         let mut cleaner = ammonia::Builder::default();
         cleaner.rm_tags(["img"]);
-        let mut desc = desc.to_string();
-        desc.truncate(256);
+        let mut desc: String = desc.chars().take(256).collect();
         desc = cleaner.clean(&desc).to_string();
         let title = cleaner.clean(title);
         let link = cleaner.clean(link);
         format!(
-r#"<li class="syndicator-item">
+            r#"<li class="syndicator-item">
 <h3 class="syndicator-title"><a href={link} target="_blank">{title}</a></h3>
 <sub class="syndicator-date">{date}</sub>
 <div class="syndicator-description">{desc}</div>
@@ -369,7 +394,9 @@ r#"<li class="syndicator-item">
     } else {
         ""
     };
-    Ok(Html(format!("{minimal_css}<ul class='syndicator-list'>{rendered}</ul>")))
+    Ok(Html(format!(
+        "{minimal_css}<ul class='syndicator-list'>{rendered}</ul>"
+    )))
 }
 
 async fn poll_feed_inner(
