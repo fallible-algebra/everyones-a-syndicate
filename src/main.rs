@@ -16,7 +16,7 @@ use extract::State;
 use http::{header, StatusCode};
 use moka::future::Cache;
 use rand::seq::SliceRandom;
-use reqwest::Url;
+use reqwest::{Client, Url};
 use response::{Html, IntoResponse};
 use routing::{get, post};
 use serde::{Deserialize, Serialize};
@@ -32,7 +32,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let state = RssCache::new(5000, Duration::from_secs(60 * 15));
+    let state = RssCache::new(5000, Duration::from_secs(60 * 60));
     let address = "0.0.0.0:3000";
     println!("Opening at {address}");
     let router = Router::new()
@@ -283,7 +283,9 @@ async fn feed_cors(
     } else if let Some(feed) = state.feed_cache.get(&url).await {
         Ok(render(feed))
     } else {
-        let res = reqwest::get(url.clone())
+        let client = Client::builder().timeout(Duration::from_secs(2)).build().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Could not build client to process request".to_string()))?;
+        let res = client.get(url.clone())
+            .send()
             .await
             .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
         let text = res
